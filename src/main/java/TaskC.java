@@ -1,6 +1,9 @@
+import sets.SetPartitionGenerator;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -106,6 +109,8 @@ import java.util.stream.Collectors;
  */
 public class TaskC {
 
+    private static final Comparator<Map.Entry<Integer, Double>> COMPARE_BY_SIMILARITY_SUM = Map.Entry.comparingByValue();
+
     public static void main(String[] args) throws Exception {
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
         String[] firstLine = br.readLine().split(" ");
@@ -123,17 +128,65 @@ public class TaskC {
                 .flatMap(o -> o.getCharacteristics().stream())
                 .collect(Collectors.toSet());
 
-        Map<Integer, Set<Integer>> groups = splitByGroups(groupQuantity, setOfCharacteristics);
+        final Map<Integer, List<Group>> partitionedGroups = partitionIntoGroupOfCharacteristics(groupQuantity, setOfCharacteristics);
+//        partitionedGroups.forEach((method, groups) -> System.out.println("Method:" + method + " Groups: " + groups));
+
+        Map<Integer, Double> partitionedSimilaritySums = new HashMap<>(partitionedGroups.size());
+        Map<Integer, List<AbstractObjectSimilarity>> partitionedObjectsSimilarities = new HashMap<>(partitionedGroups.size());
+
+        partitionedGroups.forEach((methodNumber, groups) -> {
+            Map<AbstractObject, List<GroupSimilarity>> objectsWithGroupSimilarities = new HashMap<>();
+
+            for (AbstractObject object : objects) {
+                List<GroupSimilarity> groupSimilarities = new ArrayList<>();
+                objectsWithGroupSimilarities.put(object, groupSimilarities);
+                for (Group group : groups) {
+                    double similarity = object.calculateSimilarityWithGroup(group);
+                    groupSimilarities.add(new GroupSimilarity(group, similarity));
+                }
+            }
+
+            final List<AbstractObjectSimilarity> objectsSimilarities = objectsWithGroupSimilarities.entrySet().stream()
+                    .map(entry -> {
+                        final GroupSimilarity maxGroupSimilarity = entry.getValue().stream()
+                                .max(GroupSimilarity.COMPARE_BY_SIMILARITY).get();
+                        return new AbstractObjectSimilarity(entry.getKey(), maxGroupSimilarity);
+                    })
+                    .collect(Collectors.toList());
+
+            partitionedObjectsSimilarities.put(methodNumber, objectsSimilarities);
+            partitionedSimilaritySums.put(methodNumber, objectsSimilarities.stream().map(o -> o.groupSimilarity.similarity).reduce(0D, Double::sum));
+        });
+
+        final Map.Entry<Integer, Double> partitionResult = partitionedSimilaritySums.entrySet().stream()
+                .max(COMPARE_BY_SIMILARITY_SUM).get();
+
+        final List<AbstractObjectSimilarity> objectSimilarities = partitionedObjectsSimilarities.get(partitionResult.getKey());
+        objectSimilarities.forEach(AbstractObjectSimilarity::print);
     }
 
-    private static Map<Integer, Set<Integer>> splitByGroups(int groupQuantity, Set<Integer> setOfCharacteristics) {
-        Map<Integer, Set<Integer>> groups = new HashMap<>();
+    private static Map<Integer, List<Group>> partitionIntoGroupOfCharacteristics(int groupQuantity, Set<Integer> setOfCharacteristics) {
 
-        for (Integer characteristic : setOfCharacteristics) {
-            groups.put(characteristic, setOfCharacteristics.stream().filter(v -> !v.equals(characteristic)).collect(Collectors.toSet()));
+        Map<Integer, List<Group>> groupOfCharacteristics = new HashMap<>();
+
+        final SetPartitionGenerator<Integer> generator = new SetPartitionGenerator<>(setOfCharacteristics);
+
+        int method = 1;
+        for (List<List<Integer>> setOfGroup : generator) {
+            if (setOfGroup.size() == groupQuantity) {
+                final List<Group> groups = new ArrayList<>();
+                groupOfCharacteristics.put(method, groups);
+
+                for (List<Integer> characteristics : setOfGroup) {
+                    groups.add(new Group(characteristics));
+                }
+                groups.sort(Group.COMPARE_BY_CHARACTERISTICS_SIZE);
+
+                method++;
+            }
         }
 
-        return groups;
+        return groupOfCharacteristics;
     }
 
     public static class AbstractObject {
@@ -147,6 +200,16 @@ public class TaskC {
             this.characteristics = values.subList(2, values.size());
         }
 
+        public AbstractObject(int id, List<Integer> characteristics) {
+            this.id = id;
+            this.characteristics = characteristics;
+        }
+
+        public AbstractObject(int id, Integer... characteristics) {
+            this.id = id;
+            this.characteristics = List.of(characteristics);
+        }
+
         public int getId() {
             return id;
         }
@@ -156,11 +219,142 @@ public class TaskC {
         }
 
         @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            AbstractObject object = (AbstractObject) o;
+            return id == object.id;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id);
+        }
+
+        @Override
         public String toString() {
             return "AbstractObject{" +
                     "id=" + id +
                     ", characteristics=" + characteristics +
                     '}';
+        }
+
+        public double calculateSimilarityWithGroup(Group group) {
+            double intersection = calculateQuantityOfCharacteristicsIntersection(group.getCharacteristics());
+            double union = calculateQuantityOfCharacteristicsUnion(group.getCharacteristics());
+            return intersection / union;
+        }
+
+        public double calculateSimilarityWithGroup(Integer characteristicOfGroup) {
+            double intersection = calculateQuantityOfCharacteristicsIntersection(characteristicOfGroup);
+            double union = calculateQuantityOfCharacteristicsUnion(characteristicOfGroup);
+            return intersection / union;
+        }
+
+        public double calculateSimilarityWithGroup(Set<Integer> characteristicsOfGroup) {
+            double intersection = calculateQuantityOfCharacteristicsIntersection(characteristicsOfGroup);
+            double union = calculateQuantityOfCharacteristicsUnion(characteristicsOfGroup);
+            return intersection / union;
+        }
+
+        private long calculateQuantityOfCharacteristicsIntersection(Collection<Integer> characteristicsOfGroup) {
+            final Map<Integer, Long> intersection = characteristics.stream()
+                    .filter(characteristicsOfGroup::contains)
+                    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+            return intersection.values().size();
+        }
+
+        private long calculateQuantityOfCharacteristicsUnion(Collection<Integer> characteristicsOfGroup) {
+            final ArrayList<Integer> characteristics = new ArrayList<>(this.characteristics);
+            characteristics.addAll(characteristicsOfGroup);
+
+            final Map<Integer, Long> union = characteristics.stream()
+                    .distinct()
+                    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+            return union.values().size();
+        }
+
+        public long calculateQuantityOfCharacteristicsIntersection(Integer characteristicOfGroup) {
+            final Map<Integer, Long> intersection = characteristics.stream()
+                    .filter(characteristicOfGroup::equals)
+                    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+            return intersection.values().size();
+        }
+
+        public long calculateQuantityOfCharacteristicsUnion(Integer characteristicOfGroup) {
+            final ArrayList<Integer> characteristics = new ArrayList<>(this.characteristics);
+            characteristics.add(characteristicOfGroup);
+
+            final Map<Integer, Long> union = characteristics.stream()
+                    .distinct()
+                    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+            return union.values().size();
+        }
+
+
+    }
+
+    public static class AbstractObjectSimilarity {
+
+        private final AbstractObject abstractObject;
+        private final GroupSimilarity groupSimilarity;
+
+        public AbstractObjectSimilarity(AbstractObject abstractObject, GroupSimilarity groupSimilarity) {
+            this.abstractObject = abstractObject;
+            this.groupSimilarity = groupSimilarity;
+        }
+
+        public void print() {
+            System.out.printf("%s %s%n", abstractObject.getId(), groupSimilarity.printCharacteristics());
+        }
+    }
+
+    public static class Group {
+
+        public static Comparator<Group> COMPARE_BY_CHARACTERISTICS_SIZE = Comparator.comparing(group -> group.getCharacteristics().size());
+
+        private final List<Integer> characteristics;
+
+        public Group(List<Integer> characteristics) {
+            this.characteristics = characteristics;
+        }
+
+        public List<Integer> getCharacteristics() {
+            return characteristics;
+        }
+
+        @Override
+        public String toString() {
+            return "Group{" +
+                    "characteristics=" + characteristics +
+                    '}';
+        }
+    }
+
+    private static class GroupSimilarity {
+
+        private static final Comparator<GroupSimilarity> COMPARE_BY_SIMILARITY = Comparator.comparing(GroupSimilarity::getSimilarity);
+
+        private final Group group;
+        private final double similarity;
+
+        public GroupSimilarity(Group group, double similarity) {
+            this.group = group;
+            this.similarity = similarity;
+        }
+
+        public Group getGroup() {
+            return group;
+        }
+
+        public double getSimilarity() {
+            return similarity;
+        }
+
+        public String printCharacteristics() {
+            return group.characteristics.stream().map(String::valueOf).collect(Collectors.joining(" "));
         }
     }
 }
