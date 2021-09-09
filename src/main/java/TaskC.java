@@ -162,7 +162,7 @@ public class TaskC {
                 .max(COMPARE_BY_SIMILARITY_SUM).get();
 
         final List<AbstractObjectSimilarity> objectSimilarities = partitionedObjectsSimilarities.get(partitionResult.getKey());
-        objectSimilarities.forEach(AbstractObjectSimilarity::print);
+        objectSimilarities.stream().sorted(AbstractObjectSimilarity.COMPARE_BY_OBJECT_ID).forEach(AbstractObjectSimilarity::print);
     }
 
     private static Map<Integer, List<Group>> partitionIntoGroupOfCharacteristics(int groupQuantity, Set<Integer> setOfCharacteristics) {
@@ -292,11 +292,11 @@ public class TaskC {
 
             return union.values().size();
         }
-
-
     }
 
     public static class AbstractObjectSimilarity {
+
+        private static final Comparator<AbstractObjectSimilarity> COMPARE_BY_OBJECT_ID = Comparator.comparing(s -> s.abstractObject.id);
 
         private final AbstractObject abstractObject;
         private final GroupSimilarity groupSimilarity;
@@ -354,7 +354,7 @@ public class TaskC {
         }
 
         public String printCharacteristics() {
-            return group.characteristics.stream().map(String::valueOf).collect(Collectors.joining(" "));
+            return group.characteristics.stream().sorted().map(String::valueOf).collect(Collectors.joining(" "));
         }
     }
 }
